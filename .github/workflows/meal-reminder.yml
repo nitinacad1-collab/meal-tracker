@@ -25,4 +25,7 @@ jobs:
         env:
           PROJECT_ID: meal-tracker-25c10
           PHONE_NUMBER: ${{ secrets.PHONE_NUMBER }}
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          WHATSAPP_NUMBER_FROM: ${{ secrets.WHATSAPP_NUMBER_FROM }}
         run: npm start
