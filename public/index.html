@@ -15,8 +15,10 @@
     h1{margin:0;font-size:20px;color:#0f172a}
     .row{display:flex;gap:12px;align-items:center}
     .meals-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px}
-    .meal-btn{background:linear-gradient(180deg,#fff,#f6f9ff);border:1px solid #e6eefc;border-radius:14px;padding:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer}
+    .meal-btn{background:linear-gradient(180deg,#fff,#f6f9ff);border:1px solid #e6eefc;border-radius:14px;padding:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;position:relative}
     .meal-btn.disabled{opacity:0.6;cursor:not-allowed}
+    .upload-badge{position:absolute;top:8px;right:8px;background:#10b981;color:white;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;box-shadow:0 2px 8px rgba(16,185,129,0.4)}
+    .missing-badge{position:absolute;top:8px;right:8px;background:#ef4444;color:white;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:bold;box-shadow:0 2px 8px rgba(239,68,68,0.4)}
     .meal-name{font-weight:700;margin-top:6px}
     .small{font-size:12px;color:var(--muted)}
     .progress-wrap{display:flex;align-items:center;gap:12px}
@@ -57,6 +59,7 @@
           </div>
         </div>
         <div>
+          <button class="primary" id="checkBackend" style="margin-right:8px;background:#10b981">Check Backend</button>
           <button class="primary" id="openLogin">Enter PIN</button>
         </div>
       </div>
@@ -177,12 +180,31 @@ function updateProgressUI(uploadedMeals){
   progressText.textContent = `${done}/${total}`;
 }
 
-function renderMeals(){
+function renderMeals(uploadedMeals = []){
   mealsGrid.innerHTML='';
   MEALS.forEach(meal=>{
     const div = document.createElement('div');
     div.className='meal-btn';
-    div.innerHTML = `<div style="font-size:26px">🍽</div><div class='meal-name'>${meal}</div><div class='small'>${MEAL_SCHEDULE[meal]}</div>`;
+    const isUploaded = uploadedMeals.includes(meal);
+    
+    // Check if meal is overdue
+    const scheduledTime = MEAL_SCHEDULE[meal];
+    let isOverdue = false;
+    if(scheduledTime) {
+      const [hours, minutes] = scheduledTime.split(':');
+      const mealTime = new Date();
+      mealTime.setHours(parseInt(hours) + 2, parseInt(minutes), 0, 0);
+      isOverdue = new Date() > mealTime;
+    }
+    
+    let badge = '';
+    if(isUploaded) {
+      badge = '<div class="upload-badge">✓</div>';
+    } else if(isOverdue) {
+      badge = '<div class="missing-badge">!</div>';
+    }
+    
+    div.innerHTML = `${badge}<div style="font-size:26px">🍽</div><div class='meal-name'>${meal}</div><div class='small'>${MEAL_SCHEDULE[meal]}</div>`;
     div.onclick = ()=>{ openUploader(meal) };
     mealsGrid.appendChild(div);
   });
@@ -440,6 +462,9 @@ async function refreshUI(){
     });
     updateProgressUI(uploadedMeals);
     
+    // Re-render meals with updated status
+    renderMeals(uploadedMeals);
+    
     if(snap.docs.length>0) {
       const latest = snap.docs[0].data();
       const ts = latest.sentAt && latest.sentAt.toDate ? latest.sentAt.toDate() : new Date();
@@ -479,6 +504,7 @@ async function refreshUI(){
   } catch(err) {
     console.error('UI refresh failed:', err);
     progressText.textContent = '0/6';
+    renderMeals([]);
   }
 }
 
