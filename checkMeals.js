@@ -1,22 +1,17 @@
-// checkMealsWithReminders.js
-// Runs hourly via GitHub Actions
+// checkMeals.js (DEBUG VERSION)
 
 const axios = require("axios");
 const twilio = require("twilio");
 
-// ====== CONFIG FROM GITHUB SECRETS ======
 const PROJECT_ID = "meal-tracker-25c10";
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
-const fromNumber = process.env.WHATSAPP_NUMBER_FROM;   // +14155238886
-const toNumber = process.env.PHONE_NUMBER;             // father's WhatsApp number
-// ========================================
+const fromNumber = process.env.WHATSAPP_NUMBER_FROM;
+const toNumber = process.env.PHONE_NUMBER;
 
-// Twilio client
 const client = twilio(accountSid, authToken);
 
-// Meal schedule in IST
 const MEAL_SCHEDULE_IST = {
   "Breakfast": "08:00",
   "Morning Snack": "10:30",
@@ -28,30 +23,27 @@ const MEAL_SCHEDULE_IST = {
 
 const MEALS = Object.keys(MEAL_SCHEDULE_IST);
 
-const firestoreRunQueryUrl =
+const firestoreQueryURL =
   `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents:runQuery`;
-
-const firestoreCreateDocUrl = (collection) =>
-  `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/${collection}`;
 
 function toIST(d) {
   const utc = new Date(d.getTime() + d.getTimezoneOffset() * 60000);
-  const ist = new Date(utc.getTime() + 5.5 * 3600 * 1000);
-  return ist;
+  return new Date(utc.getTime() + 5.5 * 3600 * 1000);
 }
 
-function parseTime(istDayDate, hhmm) {
-  const [hh, mm] = hhmm.split(":").map(Number);
-  const dt = new Date(istDayDate.getTime());
-  dt.setHours(hh, mm, 0, 0);
-  return dt;
+function parseMealTime(date, timeStr) {
+  const [hh, mm] = timeStr.split(":").map(Number);
+  const d = new Date(date.getTime());
+  d.setHours(hh, mm, 0, 0);
+  return d;
 }
 
 async function getTodayUploadedMeals() {
+  console.log("🔍 DEBUG: Checking Firestore for today's uploaded meals...");
+
   const nowIST = toIST(new Date());
   const startIST = new Date(nowIST.getFullYear(), nowIST.getMonth(), nowIST.getDate());
-  const startUTC = new Date(startIST.getTime() - 5.5 * 3600 * 1000);
-  const startISO = startUTC.toISOString();
+  const startUTC = new Date(startIST - 5.5 * 3600 * 1000);
 
   const query = {
     structuredQuery: {
@@ -60,87 +52,89 @@ async function getTodayUploadedMeals() {
         fieldFilter: {
           field: { fieldPath: "timestamp" },
           op: "GREATER_THAN_OR_EQUAL",
-          value: { timestampValue: startISO }
+          value: { timestampValue: startUTC.toISOString() }
         }
       }
     }
   };
 
-  const res = await axios.post(firestoreRunQueryUrl, query);
-  return res.data
-    .filter(x => x.document)
-    .map(x => x.document.fields.meal.stringValue);
-}
-
-async function reminderAlreadySent(mealName, dateStr) {
-  const docId = `${dateStr}_${mealName.replace(/\s+/g, "_")}`;
-  const url =
-    `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/reminders/${encodeURIComponent(docId)}`;
   try {
-    await axios.get(url);
-    return true;
+    const res = await axios.post(firestoreQueryURL, query);
+    const meals = res.data
+      .filter(x => x.document)
+      .map(x => x.document.fields.meal.stringValue);
+
+    console.log("📌 DEBUG: Meals uploaded today:", meals);
+    return meals;
+
   } catch (err) {
-    return false;
+    console.log("❌ Firestore error:", err.response?.data || err.message);
+    return [];
   }
 }
 
-async function createReminderRecord(mealName, dateStr) {
-  const docId = `${dateStr}_${mealName.replace(/\s+/g, "_")}`;
-  const url = firestoreCreateDocUrl(`reminders?documentId=${encodeURIComponent(docId)}`);
-  await axios.post(url, {
-    fields: {
-      meal: { stringValue: mealName },
-      date: { stringValue: dateStr },
-      sentAt: { timestampValue: new Date().toISOString() }
-    }
-  });
-}
+async function sendTwilioWhatsApp(meal) {
+  console.log(`📨 DEBUG: Attempting Twilio WhatsApp for ${meal}...`);
 
-async function sendTwilioWhatsApp(mealName) {
-  const message = `Reminder: Please upload your ${mealName} meal photo today.`;
+  try {
+    const msg = await client.messages.create({
+      from: `whatsapp:${fromNumber}`,
+      to:   `whatsapp:${toNumber}`,
+      body: `Reminder: Please upload your ${meal} meal photo today.`
+    });
 
-  const result = await client.messages.create({
-    from: `whatsapp:${fromNumber}`,
-    to:   `whatsapp:${toNumber}`,
-    body: message
-  });
+    console.log("✅ Twilio message sent:", msg.sid);
 
-  console.log("WhatsApp message sent:", result.sid);
+  } catch (err) {
+    console.log("❌ TWILIO ERROR:", err);
+  }
 }
 
 function formatDate(d) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
 
 (async function main() {
-  try {
-    const uploadedMeals = await getTodayUploadedMeals();
-    const nowIST = toIST(new Date());
-    const dateStr = formatDate(nowIST);
-    const istDay = new Date(nowIST.getFullYear(), nowIST.getMonth(), nowIST.getDate());
 
-    for (const meal of MEALS) {
-      const mealTime = parseTime(istDay, MEAL_SCHEDULE_IST[meal]);
-      const reminderTime = new Date(mealTime.getTime() + 2 * 3600 * 1000);
+  console.log("\n============================");
+  console.log("🔍 DEBUG START");
+  console.log("⏱ IST Now:", toIST(new Date()));
+  console.log("📌 Using PHONE_NUMBER:", toNumber);
+  console.log("📌 Using FROM_NUMBER:", fromNumber);
+  console.log("📌 TWILIO_ACCOUNT_SID present?", !!accountSid);
+  console.log("📌 TWILIO_AUTH_TOKEN present?", !!authToken);
+  console.log("============================\n");
 
-      if (nowIST < reminderTime) continue;
-      if (uploadedMeals.includes(meal)) continue;
+  const uploaded = await getTodayUploadedMeals();
 
-      const sent = await reminderAlreadySent(meal, dateStr);
-      if (sent) continue;
+  const nowIST = toIST(new Date());
+  const today = new Date(nowIST.getFullYear(), nowIST.getMonth(), nowIST.getDate());
+  const dateStr = formatDate(nowIST);
 
-      console.log(`Sending reminder for ${meal}...`);
-      await sendTwilioWhatsApp(meal);  
-      await createReminderRecord(meal, dateStr);
+  for (const meal of MEALS) {
+    console.log("\n--------------------------------");
+    console.log(`🍽 Meal: ${meal}`);
 
-      await new Promise(r => setTimeout(r, 1500));
+    const mealTime = parseMealTime(today, MEAL_SCHEDULE_IST[meal]);
+    const reminderTime = new Date(mealTime.getTime() + 2 * 3600 * 1000);
+
+    console.log("⏰ Meal time:", mealTime);
+    console.log("⏱ Now IST:", nowIST);
+    console.log("📌 Reminder time:", reminderTime);
+
+    if (nowIST < reminderTime) {
+      console.log(`⏸ Not due yet for: ${meal}`);
+      continue;
     }
 
-    console.log("Check completed.");
-  } catch (e) {
-    console.error("Fatal error:", e);
+    if (uploaded.includes(meal)) {
+      console.log(`📸 Already uploaded: ${meal}`);
+      continue;
+    }
+
+    console.log(`🚀 SENDING REMINDER for ${meal}...`);
+    await sendTwilioWhatsApp(meal);
   }
+
+  console.log("\n✔ DEBUG FINISHED\n");
 })();
