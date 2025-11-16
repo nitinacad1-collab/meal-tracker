@@ -1,156 +1,428 @@
-<!-- Meal Monitoring Website - Single File Project
-Includes:
-1. PIN login
-2. Meal upload UI (Breakfast, Morning Snack, Lunch, Evening Snack, Dinner, Bedtime)
-3. Firebase integration (Storage + Firestore)
-4. Cloud Function code (commented) for WhatsApp reminders
-5. Admin viewer mode
-
-============================
-INSTRUCTIONS
-============================
-- Replace YOUR_FIREBASE_CONFIG in the script with your Firebase project config.
-- Upload this file to Firebase Hosting.
-- Create Firestore collections automatically by uploading first meal.
-- Add Cloud Function code from the bottom into your Firebase Functions index.js.
-- Replace the WhatsApp number placeholder inside the function.
--->
-
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-<title>Meal Upload Tracker</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-body { font-family: Arial, sans-serif; background:#f4f4f4; padding:20px; }
-#loginBox, #uploadBox, #adminBox { max-width:400px; margin:auto; padding:20px; background:#fff; border-radius:10px; }
-input, select { width:100%; padding:10px; margin-top:10px; }
-button { padding:10px; width:100%; margin-top:15px; background:#007bff; color:white; border:none; border-radius:5px; }
-.meal-img { width:100%; margin-top:10px; border-radius:10px; }
-.hidden { display:none; }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Meal Tracker — Senior Friendly</title>
+  <style>
+    :root{
+      --bg:#f3f6fb; --card:#ffffff; --accent:#4f7cff; --muted:#6b7280; --danger:#ef4444;
+      --radius:18px; --pad:16px; font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+    }
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,#f7fbff, #f3f6fb);} 
+    .container{max-width:920px;margin:24px auto;padding:18px}
+    .card{background:var(--card);border-radius:var(--radius);box-shadow:0 8px 24px rgba(34,40,60,0.06);padding:18px;margin-bottom:18px}
+    h1{margin:0;font-size:20px;color:#0f172a}
+    .row{display:flex;gap:12px;align-items:center}
+    .meals-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px}
+    .meal-btn{background:linear-gradient(180deg,#fff,#f6f9ff);border:1px solid #e6eefc;border-radius:14px;padding:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer}
+    .meal-btn.disabled{opacity:0.6;cursor:not-allowed}
+    .meal-name{font-weight:700;margin-top:6px}
+    .small{font-size:12px;color:var(--muted)}
+    .progress-wrap{display:flex;align-items:center;gap:12px}
+    .progress{height:14px;background:#e6eefc;border-radius:12px;flex:1;overflow:hidden}
+    .progress > i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#2dd4bf);width:0%}
+    .thumb{width:100%;border-radius:10px}
+    .hidden{display:none}
+    .center{text-align:center}
+    button.primary{background:var(--accent);color:#fff;border:none;padding:10px 14px;border-radius:12px;font-weight:700;cursor:pointer}
+    .admin-table{width:100%;border-collapse:collapse;margin-top:12px}
+    .admin-table th,.admin-table td{padding:8px;border-bottom:1px solid #eef2ff;text-align:left}
+    .thumbnail{width:80px;height:56px;object-fit:cover;border-radius:8px;cursor:pointer}
+    .modal{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(2,6,23,0.6);display:flex;align-items:center;justify-content:center;z-index:1000}
+    .modal.hidden{display:none !important}
+    .modal img{max-width:90vw;max-height:90vh;border-radius:12px}
+    label.big{display:block;font-weight:700;margin-bottom:6px}
+    .status{font-size:13px;color:var(--muted)}
+    @media (max-width:640px){.meals-grid{grid-template-columns:repeat(2,1fr)}.container{padding:12px}}
+  </style>
 </head>
 <body>
-<h2 style="text-align:center;">Daily Meal Tracker</h2>
+  <div class="container">
+    <div class="card">
+      <h1>Meal Tracker — Upload Meals</h1>
+      <p class="small">Simple one-tap uploads, offline queueing, thumbnails and progress for seniors.</p>
+      <div style="height:12px"></div>
+      <div class="row">
+        <div style="flex:1">
+          <div class="progress-wrap">
+            <div style="min-width:90px;font-weight:700;color:#334155">Today</div>
+            <div class="progress"><i id="progressBar"></i></div>
+            <div id="progressText" style="min-width:80px;text-align:right;color:var(--muted)">0/6</div>
+          </div>
+        </div>
+        <div>
+          <button class="primary" id="openLogin">Enter PIN</button>
+        </div>
+      </div>
+    </div>
 
-<!-- PIN LOGIN -->
-<div id="loginBox">
-  <h3>Enter PIN</h3>
-  <input type="password" id="pinInput" placeholder="Enter 4-digit PIN">
-  <button onclick="verifyPin()">Login</button>
-</div>
+    <div id="uploadArea" class="card hidden">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-weight:800">Upload a meal</div>
+          <div class="small">Tap the meal, take or choose a photo</div>
+        </div>
+        <div class="small">Last upload: <span id="lastUpload">—</span></div>
+      </div>
 
-<!-- MEAL UPLOAD UI FOR FATHER -->
-<div id="uploadBox" class="hidden">
-  <h3>Upload Your Meal Photo</h3>
-  <select id="mealType">
-    <option>Breakfast</option>
-    <option>Morning Snack</option>
-    <option>Lunch</option>
-    <option>Evening Snack</option>
-    <option>Dinner</option>
-    <option>Bedtime</option>
-  </select>
-  <input type="file" id="mealImage">
-  <button onclick="uploadMeal()">Upload</button>
-  <p id="uploadStatus"></p>
-</div>
+      <div class="meals-grid" id="mealsGrid"></div>
 
-<!-- ADMIN VIEW MODE -->
-<div id="adminBox" class="hidden">
-  <h3>Admin Meal Review</h3>
-  <button onclick="loadMeals()">Refresh List</button>
-  <div id="mealList"></div>
-</div>
+      <div id="uploader" class="hidden card" style="margin-top:12px">
+        <label class="big">Uploading for <span id="currentMeal"></span></label>
+        <input type="file" id="fileInput" accept="image/*"><br/>
+        <div style="height:8px"></div>
+        <div id="previewWrap" class="hidden">
+          <img id="previewImg" class="thumb" alt="preview">
+        </div>
+        <div style="height:8px"></div>
+        <div class="row">
+          <button id="uploadBtn" class="primary">Upload now</button>
+          <button id="cancelBtn" style="background:#fff;border:1px solid #e6eefc;padding:10px;border-radius:12px;margin-left:8px;cursor:pointer">Cancel</button>
+        </div>
+        <div style="height:6px"></div>
+        <div id="uploadStatus" class="status"></div>
+      </div>
 
+      <div id="queueStatus" class="small" style="margin-top:12px;color:var(--muted)"></div>
+    </div>
 
-<!-- Firebase SDK -->
+    <div id="adminArea" class="card hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div style="font-weight:800">Admin Timeline</div>
+          <div class="small">All uploads for today — click to enlarge</div>
+        </div>
+        <div><button id="refreshAdmin" class="primary">Refresh</button></div>
+      </div>
+      <table class="admin-table" id="adminTable"><thead><tr><th>Meal</th><th>Time</th><th>Photo</th></tr></thead><tbody></tbody></table>
+    </div>
+
+    <div id="imageModal" class="hidden modal"><img id="modalImg"></div>
+
+    <div id="loginModal" class="hidden modal">
+      <div class="card" style="max-width:360px;margin:16px;padding:18px">
+        <h2 style="margin-top:0">Enter PIN</h2>
+        <input id="pinInput" type="password" placeholder="4-digit PIN" style="font-size:18px;padding:10px;width:100%;box-sizing:border-box"><div style="height:8px"></div>
+        <div style="display:flex;gap:8px"><button id="pinSubmit" class="primary">Submit</button><button id="pinCancel" style="background:#fff;border:1px solid #e6eefc;padding:10px;border-radius:12px;cursor:pointer">Close</button></div>
+        <div style="height:6px"></div>
+        <div class="small">(Use admin PIN to open admin view)</div>
+      </div>
+    </div>
+  </div>
+
 <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-storage-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
 
 <script>
-// =============================
-// FIREBASE CONFIG
-// =============================
-// REPLACE WITH YOUR CONFIG
 const firebaseConfig = {
   apiKey: "AIzaSyC3-H7aXvUiOmVAC9XPRjGbm9p4oD3tgpU",
   authDomain: "meal-tracker-25c10.firebaseapp.com",
   projectId: "meal-tracker-25c10",
-  storageBucket: "meal-tracker-25c10.firebasestorage.app",
+  storageBucket: "meal-tracker-25c10.firebasestorage.app", 
   messagingSenderId: "205439591698",
   appId: "1:205439591698:web:7084df47b45994f031bfcb"
 };
+
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const storage = firebase.storage();
 
-// =============================
-// PIN LOGIN SYSTEM
-// =============================
-const FATHER_PIN = "9876";  // Replace with real PIN
-const ADMIN_PIN = "2501";   // Your admin PIN
+// Simple PINs (customize)
+const FATHER_PIN = "9876";
+const ADMIN_PIN = "2501";
 
-function verifyPin() {
-  const entered = document.getElementById("pinInput").value;
-  if (entered === FATHER_PIN) {
-    document.getElementById("loginBox").classList.add("hidden");
-    document.getElementById("uploadBox").classList.remove("hidden");
-  } else if (entered === ADMIN_PIN) {
-    document.getElementById("loginBox").classList.add("hidden");
-    document.getElementById("adminBox").classList.remove("hidden");
-  } else {
-    alert("Incorrect PIN");
+const MEALS = ["Breakfast","Morning Snack","Lunch","Evening Snack","Dinner","Bedtime"];
+const MEAL_SCHEDULE = {"Breakfast":"08:00","Morning Snack":"10:30","Lunch":"13:00","Evening Snack":"16:30","Dinner":"19:30","Bedtime":"22:30"};
+
+// UI refs
+const openLogin = document.getElementById('openLogin');
+const loginModal = document.getElementById('loginModal');
+const pinSubmit = document.getElementById('pinSubmit');
+const pinCancel = document.getElementById('pinCancel');
+const pinInput = document.getElementById('pinInput');
+const uploadArea = document.getElementById('uploadArea');
+const adminArea = document.getElementById('adminArea');
+const mealsGrid = document.getElementById('mealsGrid');
+const progressBar = document.getElementById('progressBar');
+const progressText = document.getElementById('progressText');
+const lastUpload = document.getElementById('lastUpload');
+const uploader = document.getElementById('uploader');
+const fileInput = document.getElementById('fileInput');
+const previewWrap = document.getElementById('previewWrap');
+const previewImg = document.getElementById('previewImg');
+const uploadBtn = document.getElementById('uploadBtn');
+const cancelBtn = document.getElementById('cancelBtn');
+const currentMeal = document.getElementById('currentMeal');
+const queueStatus = document.getElementById('queueStatus');
+const adminTableBody = document.querySelector('#adminTable tbody');
+const refreshAdmin = document.getElementById('refreshAdmin');
+const imageModal = document.getElementById('imageModal');
+const modalImg = document.getElementById('modalImg');
+
+let selectedMeal = null;
+let uploadQueue = JSON.parse(localStorage.getItem('uploadQueue')||'[]');
+
+function updateProgressUI(uploadedMeals){
+  const done = uploadedMeals.length;
+  const total = MEALS.length;
+  const pct = Math.round((done/total)*100);
+  progressBar.style.width = pct + '%';
+  progressText.textContent = `${done}/${total}`;
+}
+
+function renderMeals(){
+  mealsGrid.innerHTML='';
+  MEALS.forEach(meal=>{
+    const div = document.createElement('div');
+    div.className='meal-btn';
+    div.innerHTML = `<div style="font-size:26px">🍽</div><div class='meal-name'>${meal}</div><div class='small'>${MEAL_SCHEDULE[meal]}</div>`;
+    div.onclick = ()=>{ openUploader(meal) };
+    mealsGrid.appendChild(div);
+  });
+}
+
+function openUploader(meal){
+  selectedMeal = meal;
+  currentMeal.textContent = meal;
+  uploader.classList.remove('hidden');
+  fileInput.value = '';
+  previewWrap.classList.add('hidden');
+  uploadStatus.textContent = '';
+}
+
+fileInput.addEventListener('change', async (e)=>{
+  const f = e.target.files[0];
+  if(!f) return;
+  const compressed = await compressImage(f, 800, 0.7);
+  previewImg.src = URL.createObjectURL(compressed);
+  previewWrap.classList.remove('hidden');
+  previewImg.onload = ()=>{ URL.revokeObjectURL(previewImg.src) }
+  uploader._blob = compressed;
+});
+
+cancelBtn.addEventListener('click', ()=>{ uploader.classList.add('hidden'); selectedMeal=null; });
+
+uploadBtn.addEventListener('click', async ()=>{
+  if(!selectedMeal) return;
+  const blob = uploader._blob;
+  if(!blob) return alert('Please select a photo first');
+  const item = {meal:selectedMeal, ts:new Date().toISOString(), dataUrl:await blobToDataURL(blob)};
+  uploadQueue.push(item);
+  localStorage.setItem('uploadQueue', JSON.stringify(uploadQueue));
+  uploader.classList.add('hidden');
+  selectedMeal = null;
+  updateQueueUI();
+  processQueue();
+});
+
+async function processQueue(){
+  if(uploadQueue.length===0){ queueStatus.textContent='No pending uploads.'; return; }
+  queueStatus.textContent = `Pending uploads: ${uploadQueue.length}`;
+  if(!navigator.onLine){ queueStatus.textContent = `Offline — will upload when online (${uploadQueue.length})`; return; }
+
+  const item = uploadQueue[0];
+  try{
+    const blob = dataURLtoBlob(item.dataUrl);
+    const fileName = `${item.meal}_${Date.now()}.jpg`;
+    const ref = storage.ref().child('meals/'+fileName);
+    const snap = await ref.put(blob);
+    const url = await ref.getDownloadURL();
+    
+    // Create document ID in format: YYYY-MM-DD_Meal_Name
+    const date = new Date(item.ts);
+    const dateStr = date.toISOString().split('T')[0];
+    const mealKey = item.meal.replace(/\s+/g, '_');
+    const docId = `${dateStr}_${mealKey}`;
+    
+    // Save to reminders collection with your existing structure
+    await db.collection('reminders').doc(docId).set({
+      meal: item.meal,
+      date: dateStr,
+      url: url,
+      sentAt: new Date(item.ts)
+    });
+    
+    uploadQueue.shift();
+    localStorage.setItem('uploadQueue', JSON.stringify(uploadQueue));
+    queueStatus.textContent = `Uploaded: ${item.meal}`;
+    await refreshUI();
+    setTimeout(processQueue,500);
+  }catch(err){
+    console.error('upload failed',err);
+    queueStatus.textContent = 'Upload failed — will retry later';
   }
 }
 
-// =============================
-// MEAL UPLOAD
-// =============================
-async function uploadMeal() {
-  const mealType = document.getElementById("mealType").value;
-  const file = document.getElementById("mealImage").files[0];
-  if (!file) return alert("Please select an image");
-
-  const fileName = `${mealType}_${Date.now()}.jpg`;
-  const ref = storage.ref().child("meals/" + fileName);
-
-  document.getElementById("uploadStatus").textContent = "Uploading...";
-
-  await ref.put(file);
-  const url = await ref.getDownloadURL();
-
-  await db.collection("meals").add({
-    meal: mealType,
-    url: url,
-    timestamp: new Date()
+function compressImage(file, maxWidth=1000, quality=0.8){
+  return new Promise((res,rej)=>{
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = ()=>{
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxWidth / img.width);
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const c = document.createElement('canvas'); c.width=w;c.height=h;
+      const ctx=c.getContext('2d'); ctx.drawImage(img,0,0,w,h);
+      c.toBlob(b=>{ res(b); }, 'image/jpeg', quality);
+    };
+    img.onerror=rej; img.src=url;
   });
-
-  document.getElementById("uploadStatus").textContent = "Uploaded successfully!";
 }
 
-// =============================
-// ADMIN VIEW
-// =============================
-async function loadMeals() {
-  const list = document.getElementById("mealList");
-  list.innerHTML = "Loading...";
+function blobToDataURL(blob){
+  return new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.readAsDataURL(blob); });
+}
+
+function dataURLtoBlob(dataurl) {
+  const arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1], bstr = atob(arr[1]);
+  let n = bstr.length; const u8arr = new Uint8Array(n);
+  while(n--) u8arr[n] = bstr.charCodeAt(n);
+  return new Blob([u8arr], {type:mime});
+}
+
+async function refreshAdminUI(){
+  adminTableBody.innerHTML='<tr><td colspan="3">Loading...</td></tr>';
+  try {
+    const snap = await db.collection('reminders').orderBy('sentAt','desc').limit(50).get();
+    adminTableBody.innerHTML='';
+    if(snap.empty){
+      adminTableBody.innerHTML='<tr><td colspan="3">No meals uploaded yet</td></tr>';
+      return;
+    }
+    snap.forEach(doc=>{
+      const d = doc.data();
+      const tr = document.createElement('tr');
+      const tdMeal=document.createElement('td'); tdMeal.textContent=d.meal || 'Unknown';
+      const tdTime=document.createElement('td'); 
+      const ts = d.sentAt && d.sentAt.toDate ? d.sentAt.toDate() : new Date();
+      tdTime.textContent=ts.toLocaleString();
+      const tdPhoto=document.createElement('td');
+      if(d.url){
+        const img=document.createElement('img'); 
+        img.src=d.url; 
+        img.className='thumbnail'; 
+        img.onclick=()=>{modalImg.src=d.url; imageModal.classList.remove('hidden');};
+        tdPhoto.appendChild(img);
+      } else {
+        tdPhoto.textContent = 'No photo';
+      }
+      tr.appendChild(tdMeal);tr.appendChild(tdTime);tr.appendChild(tdPhoto);
+      adminTableBody.appendChild(tr);
+    });
+  } catch(err) {
+    console.error('Admin UI refresh failed:', err);
+    adminTableBody.innerHTML = '<tr><td colspan="3" style="color:var(--danger)">Failed to load data: ' + err.message + '</td></tr>';
+  }
+}
+
+refreshAdmin.addEventListener('click', refreshAdminUI);
+
+renderMeals();
+updateQueueUI();
+processQueue();
+refreshUI();
+
+function updateQueueUI(){
+  queueStatus.textContent = uploadQueue.length ? `Pending uploads: ${uploadQueue.length}` : 'No pending uploads.';
+}
+
+async function refreshUI(){
+  const today = new Date().toISOString().split('T')[0];
+  try {
+    const snap = await db.collection('reminders').where('date','==',today).get();
+    const uploadedMeals = [];
+    snap.forEach(d=>{
+      const data = d.data();
+      if(data.meal && data.url) uploadedMeals.push(data.meal); // Only count if photo URL exists
+    });
+    updateProgressUI(uploadedMeals);
+    
+    if(snap.docs.length>0) {
+      const latest = snap.docs[0].data();
+      const ts = latest.sentAt && latest.sentAt.toDate ? latest.sentAt.toDate() : new Date();
+      lastUpload.textContent = ts.toLocaleString();
+    } else {
+      lastUpload.textContent='—';
+    }
+    
+    // Update meal button colors based on actual uploads
+    Array.from(mealsGrid.children).forEach(div=>{
+      const mealName = div.querySelector('.meal-name').textContent;
+      if(uploadedMeals.includes(mealName)) {
+        // Green for uploaded meals
+        div.style.borderColor='#10b981';
+        div.style.background='linear-gradient(180deg,#f0fdf4,#dcfce7)';
+      } else {
+        // Check if meal time has passed (2 hours after scheduled time)
+        const scheduledTime = MEAL_SCHEDULE[mealName];
+        if(scheduledTime) {
+          const [hours, minutes] = scheduledTime.split(':');
+          const mealTime = new Date();
+          mealTime.setHours(parseInt(hours) + 2, parseInt(minutes), 0, 0);
+          const now = new Date();
+          
+          if(now > mealTime) {
+            // Red for overdue meals
+            div.style.borderColor='#ef4444';
+            div.style.background='linear-gradient(180deg,#fef2f2,#fee2e2)';
+          } else {
+            // Default for upcoming meals
+            div.style.borderColor='#e6eefc';
+            div.style.background='linear-gradient(180deg,#fff,#f6f9ff)';
+          }
+        }
+      }
+    });
+  } catch(err) {
+    console.error('UI refresh failed:', err);
+    progressText.textContent = '0/6';
+  }
+}
+
+openLogin.addEventListener('click', ()=>{ 
+  loginModal.classList.remove('hidden'); 
+  pinInput.value = '';
+  setTimeout(()=>pinInput.focus(), 100);
+});
+
+pinCancel.addEventListener('click', ()=>{ 
+  loginModal.classList.add('hidden'); 
+  pinInput.value = '';
+});
+
+pinSubmit.addEventListener('click', ()=>{
+  const v = pinInput.value.trim();
+  pinInput.value = '';
   
-  const snap = await db.collection("meals").orderBy("timestamp","desc").get();
-  list.innerHTML = "";
+  if(v===FATHER_PIN){ 
+    loginModal.classList.add('hidden'); 
+    uploadArea.classList.remove('hidden'); 
+    adminArea.classList.add('hidden'); 
+    refreshUI();
+  }
+  else if(v===ADMIN_PIN){ 
+    loginModal.classList.add('hidden'); 
+    adminArea.classList.remove('hidden'); 
+    uploadArea.classList.add('hidden'); 
+    refreshAdminUI(); 
+  }
+  else {
+    alert('Incorrect PIN');
+  }
+});
 
-  snap.forEach(doc => {
-    const d = doc.data();
-    list.innerHTML += `
-      <div style='background:white;padding:10px;margin-top:10px;border-radius:10px;'>
-        <b>${d.meal}</b><br>
-        <img src='${d.url}' class='meal-img'>
-        <small>${d.timestamp.toDate()}</small>
-      </div>
-    `;
-  });
-}
+pinInput.addEventListener('keypress', (e)=>{
+  if(e.key === 'Enter') pinSubmit.click();
+});
+
+imageModal.addEventListener('click', ()=>imageModal.classList.add('hidden'));
+
+window.addEventListener('online', ()=>{ processQueue(); });
+
+setInterval(refreshUI, 30000);
 </script>
-
 </body>
 </html>
