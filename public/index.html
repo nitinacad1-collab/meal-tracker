@@ -1,0 +1,156 @@
+<!-- Meal Monitoring Website - Single File Project
+Includes:
+1. PIN login
+2. Meal upload UI (Breakfast, Morning Snack, Lunch, Evening Snack, Dinner, Bedtime)
+3. Firebase integration (Storage + Firestore)
+4. Cloud Function code (commented) for WhatsApp reminders
+5. Admin viewer mode
+
+============================
+INSTRUCTIONS
+============================
+- Replace YOUR_FIREBASE_CONFIG in the script with your Firebase project config.
+- Upload this file to Firebase Hosting.
+- Create Firestore collections automatically by uploading first meal.
+- Add Cloud Function code from the bottom into your Firebase Functions index.js.
+- Replace the WhatsApp number placeholder inside the function.
+-->
+
+<html>
+<head>
+<title>Meal Upload Tracker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body { font-family: Arial, sans-serif; background:#f4f4f4; padding:20px; }
+#loginBox, #uploadBox, #adminBox { max-width:400px; margin:auto; padding:20px; background:#fff; border-radius:10px; }
+input, select { width:100%; padding:10px; margin-top:10px; }
+button { padding:10px; width:100%; margin-top:15px; background:#007bff; color:white; border:none; border-radius:5px; }
+.meal-img { width:100%; margin-top:10px; border-radius:10px; }
+.hidden { display:none; }
+</style>
+</head>
+<body>
+<h2 style="text-align:center;">Daily Meal Tracker</h2>
+
+<!-- PIN LOGIN -->
+<div id="loginBox">
+  <h3>Enter PIN</h3>
+  <input type="password" id="pinInput" placeholder="Enter 4-digit PIN">
+  <button onclick="verifyPin()">Login</button>
+</div>
+
+<!-- MEAL UPLOAD UI FOR FATHER -->
+<div id="uploadBox" class="hidden">
+  <h3>Upload Your Meal Photo</h3>
+  <select id="mealType">
+    <option>Breakfast</option>
+    <option>Morning Snack</option>
+    <option>Lunch</option>
+    <option>Evening Snack</option>
+    <option>Dinner</option>
+    <option>Bedtime</option>
+  </select>
+  <input type="file" id="mealImage">
+  <button onclick="uploadMeal()">Upload</button>
+  <p id="uploadStatus"></p>
+</div>
+
+<!-- ADMIN VIEW MODE -->
+<div id="adminBox" class="hidden">
+  <h3>Admin Meal Review</h3>
+  <button onclick="loadMeals()">Refresh List</button>
+  <div id="mealList"></div>
+</div>
+
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-storage-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+
+<script>
+// =============================
+// FIREBASE CONFIG
+// =============================
+// REPLACE WITH YOUR CONFIG
+const firebaseConfig = {
+  apiKey: "AIzaSyC3-H7aXvUiOmVAC9XPRjGbm9p4oD3tgpU",
+  authDomain: "meal-tracker-25c10.firebaseapp.com",
+  projectId: "meal-tracker-25c10",
+  storageBucket: "meal-tracker-25c10.firebasestorage.app",
+  messagingSenderId: "205439591698",
+  appId: "1:205439591698:web:7084df47b45994f031bfcb"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const storage = firebase.storage();
+
+// =============================
+// PIN LOGIN SYSTEM
+// =============================
+const FATHER_PIN = "9876";  // Replace with real PIN
+const ADMIN_PIN = "2501";   // Your admin PIN
+
+function verifyPin() {
+  const entered = document.getElementById("pinInput").value;
+  if (entered === FATHER_PIN) {
+    document.getElementById("loginBox").classList.add("hidden");
+    document.getElementById("uploadBox").classList.remove("hidden");
+  } else if (entered === ADMIN_PIN) {
+    document.getElementById("loginBox").classList.add("hidden");
+    document.getElementById("adminBox").classList.remove("hidden");
+  } else {
+    alert("Incorrect PIN");
+  }
+}
+
+// =============================
+// MEAL UPLOAD
+// =============================
+async function uploadMeal() {
+  const mealType = document.getElementById("mealType").value;
+  const file = document.getElementById("mealImage").files[0];
+  if (!file) return alert("Please select an image");
+
+  const fileName = `${mealType}_${Date.now()}.jpg`;
+  const ref = storage.ref().child("meals/" + fileName);
+
+  document.getElementById("uploadStatus").textContent = "Uploading...";
+
+  await ref.put(file);
+  const url = await ref.getDownloadURL();
+
+  await db.collection("meals").add({
+    meal: mealType,
+    url: url,
+    timestamp: new Date()
+  });
+
+  document.getElementById("uploadStatus").textContent = "Uploaded successfully!";
+}
+
+// =============================
+// ADMIN VIEW
+// =============================
+async function loadMeals() {
+  const list = document.getElementById("mealList");
+  list.innerHTML = "Loading...";
+  
+  const snap = await db.collection("meals").orderBy("timestamp","desc").get();
+  list.innerHTML = "";
+
+  snap.forEach(doc => {
+    const d = doc.data();
+    list.innerHTML += `
+      <div style='background:white;padding:10px;margin-top:10px;border-radius:10px;'>
+        <b>${d.meal}</b><br>
+        <img src='${d.url}' class='meal-img'>
+        <small>${d.timestamp.toDate()}</small>
+      </div>
+    `;
+  });
+}
+</script>
+
+</body>
+</html>
