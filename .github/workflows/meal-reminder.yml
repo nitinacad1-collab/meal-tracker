@@ -24,5 +24,5 @@ jobs:
       - name: Run reminder script
         env:
           PROJECT_ID: meal-tracker-25c10
-          PHONE_NUMBER: "+916302257743"
+          PHONE_NUMBER: ${{ secrets.PHONE_NUMBER }}
         run: npm start

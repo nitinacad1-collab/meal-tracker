@@ -5,7 +5,7 @@
 const axios = require("axios");
 
 // ====== CONFIG - EDIT BEFORE USE ======
-const PHONE_NUMBER = "+916302257743";   // Replace with your father's number
+const PHONE_NUMBER = process.env.PHONE_NUMBER;;   // Replace with your father's number
 const PROJECT_ID = "meal-tracker-25c10"; // Your Firebase project id
 // ======================================
 
